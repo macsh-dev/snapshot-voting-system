@@ -21,10 +21,11 @@ contract GovernorContract is
         TimelockController _timelock,
         uint48 _votingDelay,
         uint32 _votingPeriod,
-        uint256 _quorumPercentage
+        uint256 _quorumPercentage,
+        uint256 _proposalThreshold
     )
         Governor("GovernorContract")
-        GovernorSettings(_votingDelay, _votingPeriod, 0)
+        GovernorSettings(_votingDelay, _votingPeriod, _proposalThreshold)
         GovernorVotes(_token)
         GovernorVotesQuorumFraction(_quorumPercentage)
         GovernorTimelockControl(_timelock)

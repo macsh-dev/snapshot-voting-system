@@ -1,9 +1,11 @@
 import { ethers } from "hardhat";
 import { Interface } from "ethers";
+import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 import {
   VOTING_DELAY,
   VOTING_PERIOD,
   QUORUM_PERCENTAGE,
+  PROPOSAL_THRESHOLD,
   MIN_DELAY,
   ADDRESS_ZERO,
   NEW_STORE_VALUE,
@@ -41,7 +43,8 @@ async function main() {
     timelockAddress,
     VOTING_DELAY,
     VOTING_PERIOD,
-    QUORUM_PERCENTAGE
+    QUORUM_PERCENTAGE,
+    PROPOSAL_THRESHOLD
   );
   await governor.waitForDeployment();
   const governorAddress = await governor.getAddress();
@@ -50,10 +53,12 @@ async function main() {
   // 4. Setup TimeLock roles
   const proposerRole = await timeLock.PROPOSER_ROLE();
   const executorRole = await timeLock.EXECUTOR_ROLE();
+  const cancellerRole = await timeLock.CANCELLER_ROLE();
   const adminRole = await timeLock.DEFAULT_ADMIN_ROLE();
 
   await (await timeLock.grantRole(proposerRole, governorAddress)).wait(1);
   await (await timeLock.grantRole(executorRole, ADDRESS_ZERO)).wait(1);
+  await (await timeLock.grantRole(cancellerRole, governorAddress)).wait(1);
   await (await timeLock.revokeRole(adminRole, deployer.address)).wait(1);
   console.log("TimeLock roles configured");
 
@@ -63,6 +68,25 @@ async function main() {
   await box.waitForDeployment();
   const boxAddress = await box.getAddress();
   console.log("Box deployed to:", boxAddress);
+
+  // 5b. Deploy MerkleAirdrop — distribute 90% of supply to mitigate centralization risk
+  const airdropAmount = ethers.parseEther("900000"); // 900k tokens for airdrop
+  const signers = await ethers.getSigners();
+  const perRecipient = airdropAmount / 2n;
+  const values: [string, string][] = [
+    [signers[1]?.address ?? deployer.address, perRecipient.toString()],
+    [signers[2]?.address ?? deployer.address, perRecipient.toString()],
+  ];
+  const tree = StandardMerkleTree.of(values, ["address", "uint256"]);
+
+  const MerkleAirdrop = await ethers.getContractFactory("MerkleAirdrop");
+  const merkleAirdrop = await MerkleAirdrop.deploy(tokenAddress, tree.root);
+  await merkleAirdrop.waitForDeployment();
+  const airdropAddress = await merkleAirdrop.getAddress();
+  console.log("MerkleAirdrop deployed to:", airdropAddress);
+
+  await (await governanceToken.transfer(airdropAddress, airdropAmount)).wait(1);
+  console.log("Transferred", ethers.formatEther(airdropAmount), "tokens to MerkleAirdrop");
 
   // 6. Propose
   const encodedFunctionCall = box.interface.encodeFunctionData(FUNC, [
